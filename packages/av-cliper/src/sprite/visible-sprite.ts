@@ -1,6 +1,7 @@
 import { BaseSprite } from './base-sprite';
-import { IClip } from '../clips';
+import { IClip, MP4Clip } from '../clips';
 import { Log } from '../log';
+import { EventTool } from '../event-tool';
 
 /**
  * 包装 {@link IClip} 给素材扩展坐标、层级、透明度等信息，用于 {@link [AVCanvas](../../av-canvas/classes/AVCanvas.html)} 响应用户交互
@@ -20,6 +21,14 @@ import { Log } from '../log';
  */
 export class VisibleSprite extends BaseSprite {
   #clip: IClip;
+
+  #eventTool = new EventTool<{
+    clipDestroyed: () => void;
+    propsChange: (props: { zIndex?: number }) => void;
+  }>();
+
+  on = this.#eventTool.on;
+
   getClip() {
     return this.#clip;
   }
@@ -33,6 +42,12 @@ export class VisibleSprite extends BaseSprite {
       this.time.duration =
         this.time.duration === 0 ? duration : this.time.duration;
     });
+    if (clip instanceof MP4Clip) {
+      clip.addRef();
+      clip.on('destroy', () => {
+        this.#eventTool.emit('clipDestroyed');
+      });
+    }
   }
 
   // 保持最近一帧，若 clip 在当前帧无数据，则绘制最近一帧
@@ -88,6 +103,9 @@ export class VisibleSprite extends BaseSprite {
 
   #destroyed = false;
   destroy(): void {
+    if (this.#clip instanceof MP4Clip) {
+      this.#clip.release();
+    }
     if (this.#destroyed) return;
     this.#destroyed = true;
 
