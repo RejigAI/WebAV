@@ -138,8 +138,8 @@ export class AVCanvas {
     let runCnt = 0;
     const expectFrameTime = 1000 / 30;
     this.#stopRender = workerTimer(() => {
-      // workerTimer 会略快于真实时钟，使用真实时间（performance.now）作为基准
-      // 跳过部分运行帧修正时间，避免导致音画不同步
+      // workerTimer is slightly faster than real clock, use real time (performance.now) as a reference
+      // Skip some execution frames to correct time, avoiding audio-video desynchronization
       if ((performance.now() - start) / (expectFrameTime * runCnt) < 1) {
         return;
       }

@@ -1,4 +1,5 @@
-// 改编自 https://jameshfisher.com/2020/08/11/production-ready-green-screen-in-the-browser/
+import { TImgSource } from './chromakey';
+
 const vertexShader = `#version 300 es
   layout (location = 0) in vec4 a_position;
   layout (location = 1) in vec2 a_texCoord;
@@ -9,44 +10,26 @@ const vertexShader = `#version 300 es
   }
 `;
 
-const fragmentShader = `#version 300 es
+const fragmentShaderCustom = `#version 300 es
 precision mediump float;
 out vec4 FragColor;
 in vec2 v_texCoord;
 
 uniform sampler2D frameTexture;
-uniform vec3 keyColor;
+uniform sampler2D redPolynomial;
+uniform sampler2D greenPolynomial;
+uniform sampler2D bluePolynomial;
 
-// 色度的相似度计算
-uniform float similarity;
-// 透明度的平滑度计算
-uniform float smoothness;
-// 降低绿幕饱和度，提高抠图准确度
-uniform float spill;
-
-vec2 RGBtoUV(vec3 rgb) {
-  return vec2(
-    rgb.r * -0.169 + rgb.g * -0.331 + rgb.b *  0.5    + 0.5,
-    rgb.r *  0.5   + rgb.g * -0.419 + rgb.b * -0.081  + 0.5
-  );
+vec3 applyColorCorrection(vec3 color) {
+  float newR = texture(redPolynomial, vec2(color.r, 0.5)).r;
+  float newG = texture(greenPolynomial, vec2(color.g, 0.5)).r;
+  float newB = texture(bluePolynomial, vec2(color.b, 0.5)).r;
+  return vec3(newR, newG, newB);
 }
 
 void main() {
-  // 获取当前像素的rgba值
   vec4 rgba = texture(frameTexture, v_texCoord);
-  // 计算当前像素与绿幕像素的色度差值
-  vec2 chromaVec = RGBtoUV(rgba.rgb) - RGBtoUV(keyColor);
-  // 计算当前像素与绿幕像素的色度距离（向量长度）, 越相像则色度距离越小
-  float chromaDist = sqrt(dot(chromaVec, chromaVec));
-  // 设置了一个相似度阈值，baseMask为负，则表明是绿幕，为正则表明不是绿幕
-  float baseMask = chromaDist - similarity;
-  // 如果baseMask为负数，fullMask等于0；baseMask为正数，越大，则透明度越低
-  float fullMask = pow(clamp(baseMask / smoothness, 0., 1.), 1.5);
-  rgba.a = fullMask; // 设置透明度
-  // 如果baseMask为负数，spillVal等于0；baseMask为整数，越小，饱和度越低
-  float spillVal = pow(clamp(baseMask / spill, 0., 1.), 1.5);
-  float desat = clamp(rgba.r * 0.2126 + rgba.g * 0.7152 + rgba.b * 0.0722, 0., 1.); // 计算当前像素的灰��值
-  rgba.rgb = mix(vec3(desat, desat, desat), rgba.rgb, spillVal);
+  rgba.rgb = applyColorCorrection(rgba.rgb);
   FragColor = rgba;
 }
 `;
@@ -54,16 +37,14 @@ void main() {
 const POINT_POS = [-1, 1, -1, -1, 1, -1, 1, -1, 1, 1, -1, 1];
 const TEX_COORD_POS = [0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1];
 
-//  初始化着色器程序，让 WebGL 知道如何绘制我们的数据
 function initShaderProgram(
-  gl: WebGLRenderingContext,
+  gl: WebGL2RenderingContext,
   vsSource: string,
   fsSource: string,
 ) {
   const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource)!;
   const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource)!;
 
-  // 创建着色器程序
   const shaderProgram = gl.createProgram()!;
   gl.attachShader(shaderProgram, vertexShader);
   gl.attachShader(shaderProgram, fragmentShader);
@@ -79,17 +60,11 @@ function initShaderProgram(
   return shaderProgram;
 }
 
-// 创建指定类型的着色器，上传 source 源码并编译
-function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
+function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
   const shader = gl.createShader(type)!;
-
-  // Send the source to the shader object
   gl.shaderSource(shader, source);
-
-  // Compile the shader program
   gl.compileShader(shader);
 
-  // See if it compiled successfully
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     const errMsg = gl.getShaderInfoLog(shader);
     gl.deleteShader(shader);
@@ -100,7 +75,7 @@ function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
 }
 
 function updateTexture(
-  gl: WebGLRenderingContext,
+  gl: WebGL2RenderingContext,
   img: TImgSource,
   texture: WebGLTexture,
 ) {
@@ -109,12 +84,11 @@ function updateTexture(
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
-function initTexture(gl: WebGLRenderingContext) {
+function initTexture(gl: WebGL2RenderingContext) {
   const texture = gl.createTexture();
   if (texture == null) throw Error('Create WebGL texture error');
   gl.bindTexture(gl.TEXTURE_2D, texture);
 
-  // put a single pixel in the texture so we can use it immediately.
   const level = 0;
   const internalFormat = gl.RGBA;
   const width = 1;
@@ -143,19 +117,7 @@ function initTexture(gl: WebGLRenderingContext) {
   return texture;
 }
 
-interface IChromakeyOpts {
-  keyColor: [number, number, number];
-  similarity: number;
-  smoothness: number;
-  spill: number;
-}
-
-function initCvs(
-  opts: {
-    width: number;
-    height: number;
-  } & IChromakeyOpts,
-) {
+function initCvs(opts: { width: number; height: number }) {
   const cvs =
     'document' in globalThis
       ? globalThis.document.createElement('canvas')
@@ -170,22 +132,8 @@ function initCvs(
 
   if (gl == null) throw Error('Cant create gl context');
 
-  const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShader);
+  const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShaderCustom);
   gl.useProgram(shaderProgram);
-
-  gl.uniform3fv(
-    gl.getUniformLocation(shaderProgram, 'keyColor'),
-    opts.keyColor.map((v) => v / 255),
-  );
-  gl.uniform1f(
-    gl.getUniformLocation(shaderProgram, 'similarity'),
-    opts.similarity,
-  );
-  gl.uniform1f(
-    gl.getUniformLocation(shaderProgram, 'smoothness'),
-    opts.smoothness,
-  );
-  gl.uniform1f(gl.getUniformLocation(shaderProgram, 'spill'), opts.spill);
 
   const posBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -224,70 +172,69 @@ function initCvs(
   return { cvs, gl };
 }
 
-export type TImgSource =
-  | HTMLVideoElement
-  | HTMLCanvasElement
-  | HTMLImageElement
-  | ImageBitmap
-  | OffscreenCanvas
-  | VideoFrame;
-
 function getSourceWH(imgSource: TImgSource) {
   return imgSource instanceof VideoFrame
     ? { width: imgSource.codedWidth, height: imgSource.codedHeight }
     : { width: imgSource.width, height: imgSource.height };
 }
 
-function getKeyColor(imgSource: TImgSource) {
-  const cvs = new OffscreenCanvas(1, 1);
-  const ctx = cvs.getContext('2d')!;
-  ctx.drawImage(imgSource, 0, 0);
-  const {
-    data: [r, g, b],
-  } = ctx.getImageData(0, 0, 1, 1);
-  return [r, g, b] as [number, number, number];
+function createPolynomialTexture(gl: WebGL2RenderingContext, data: number[]) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 256, 1, 0, gl.RED, gl.FLOAT, new Float32Array(data));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
 }
 
-/**
- * 绿幕抠图
- * keyColor 需要扣除的背景色，若不传则取第一个像素点
- * similarity 背景色相似度阈值，过小可能保留背景色，过大可能扣掉更多非背景像素点
- * smoothness 平滑度；过小可能出现锯齿，过大导致整体变透明
- * spill      饱和度；过小可能保留绿色混合，过大导致图片变灰度
- * @param opts: {
- *   keyColor?: [r, g, b]
- *   similarity: number
- *   smoothness: number
- *   spill: number
- * }
- */
-export const createChromakey = (
-  opts: Omit<IChromakeyOpts, 'keyColor'> & {
-    keyColor?: [number, number, number];
-  },
+export const createChromakeyCustom = (
+  colorCorrection: {
+    red: number[];
+    green: number[];
+    blue: number[];
+  }
 ) => {
   let cvs: HTMLCanvasElement | OffscreenCanvas | null = null;
-  let gl: WebGLRenderingContext | null = null;
-  let keyC = opts.keyColor;
-  let texture: WebGLTexture | null = null;
+  let gl: WebGL2RenderingContext | null = null;
+  let frameTexture: WebGLTexture | null = null;
+  let redPolynomialTexture: WebGLTexture | null = null;
+  let greenPolynomialTexture: WebGLTexture | null = null;
+  let bluePolynomialTexture: WebGLTexture | null = null;
 
   return async (imgSource: TImgSource) => {
-    if (cvs == null || gl == null || texture == null) {
-      if (keyC == null) keyC = getKeyColor(imgSource);
-      ({ cvs, gl } = initCvs({
-        ...getSourceWH(imgSource),
-        keyColor: keyC,
-        ...opts,
-      }));
-      texture = initTexture(gl);
+    if (cvs == null || gl == null || frameTexture == null) {
+      ({ cvs, gl } = initCvs(getSourceWH(imgSource)));
+      frameTexture = initTexture(gl);
+
+      const shaderProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+
+      redPolynomialTexture = createPolynomialTexture(gl, colorCorrection.red);
+      greenPolynomialTexture = createPolynomialTexture(gl, colorCorrection.green);
+      bluePolynomialTexture = createPolynomialTexture(gl, colorCorrection.blue);
+
+      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'frameTexture'), 0);
+      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'redPolynomial'), 1);
+      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'greenPolynomial'), 2);
+      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'bluePolynomial'), 3);
     }
 
-    updateTexture(gl, imgSource, texture);
+    gl.activeTexture(gl.TEXTURE0);
+    updateTexture(gl, imgSource, frameTexture);
 
-    if (
-      globalThis.VideoFrame != null &&
-      imgSource instanceof globalThis.VideoFrame
-    ) {
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, redPolynomialTexture);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, greenPolynomialTexture);
+
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, bluePolynomialTexture);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    if (globalThis.VideoFrame != null && imgSource instanceof globalThis.VideoFrame) {
       const rs = new VideoFrame(cvs, {
         alpha: 'keep',
         timestamp: imgSource.timestamp,
