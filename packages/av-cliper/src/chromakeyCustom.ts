@@ -1,4 +1,4 @@
-import { TImgSource } from './chromakey';
+import { TImgSource } from './chromakey'; // Assuming you have a types file
 
 const vertexShader = `#version 300 es
   layout (location = 0) in vec4 a_position;
@@ -10,35 +10,30 @@ const vertexShader = `#version 300 es
   }
 `;
 
-const fragmentShaderCustom = `#version 300 es
-precision mediump float;
-out vec4 FragColor;
-in vec2 v_texCoord;
+const fragmentShader = `#version 300 es
+  precision mediump float;
+  out vec4 FragColor;
+  in vec2 v_texCoord;
 
-uniform sampler2D frameTexture;
-uniform sampler2D redPolynomial;
-uniform sampler2D greenPolynomial;
-uniform sampler2D bluePolynomial;
+  uniform sampler2D frameTexture;
+  uniform sampler2D redLUT;
+  uniform sampler2D greenLUT;
+  uniform sampler2D blueLUT;
 
-vec3 applyColorCorrection(vec3 color) {
-  float newR = texture(redPolynomial, vec2(color.r, 0.5)).r;
-  float newG = texture(greenPolynomial, vec2(color.g, 0.5)).r;
-  float newB = texture(bluePolynomial, vec2(color.b, 0.5)).r;
-  return vec3(newR, newG, newB);
-}
-
-void main() {
-  vec4 rgba = texture(frameTexture, v_texCoord);
-  rgba.rgb = applyColorCorrection(rgba.rgb);
-  FragColor = rgba;
-}
+  void main() {
+    vec4 color = texture(frameTexture, v_texCoord);
+    float r = texture(redLUT, vec2(color.r, 0.5)).r;
+    float g = texture(greenLUT, vec2(color.g, 0.5)).r;
+    float b = texture(blueLUT, vec2(color.b, 0.5)).r;
+    FragColor = vec4(r, g, b, color.a);
+  }
 `;
 
 const POINT_POS = [-1, 1, -1, -1, 1, -1, 1, -1, 1, 1, -1, 1];
 const TEX_COORD_POS = [0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1];
 
 function initShaderProgram(
-  gl: WebGL2RenderingContext,
+  gl: WebGLRenderingContext,
   vsSource: string,
   fsSource: string,
 ) {
@@ -60,7 +55,7 @@ function initShaderProgram(
   return shaderProgram;
 }
 
-function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
+function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type)!;
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
@@ -75,7 +70,7 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 }
 
 function updateTexture(
-  gl: WebGL2RenderingContext,
+  gl: WebGLRenderingContext,
   img: TImgSource,
   texture: WebGLTexture,
 ) {
@@ -84,7 +79,7 @@ function updateTexture(
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
-function initTexture(gl: WebGL2RenderingContext) {
+function initTexture(gl: WebGLRenderingContext) {
   const texture = gl.createTexture();
   if (texture == null) throw Error('Create WebGL texture error');
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -96,7 +91,7 @@ function initTexture(gl: WebGL2RenderingContext) {
   const border = 0;
   const srcFormat = gl.RGBA;
   const srcType = gl.UNSIGNED_BYTE;
-  const pixel = new Uint8Array([0, 0, 255, 255]); // opaque blue
+  const pixel = new Uint8Array([0, 0, 255, 255]);
   gl.texImage2D(
     gl.TEXTURE_2D,
     level,
@@ -117,7 +112,28 @@ function initTexture(gl: WebGL2RenderingContext) {
   return texture;
 }
 
-function initCvs(opts: { width: number; height: number }) {
+function createLUTTexture(gl: WebGLRenderingContext, data: number[]) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 256, 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, new Uint8Array(data));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
+}
+
+interface IColorCorrectionOpts {
+  redPolynomial: number[];
+  greenPolynomial: number[];
+  bluePolynomial: number[];
+}
+
+function initCvs(
+  opts: {
+    width: number;
+    height: number;
+  } & IColorCorrectionOpts,
+) {
   const cvs =
     'document' in globalThis
       ? globalThis.document.createElement('canvas')
@@ -132,8 +148,17 @@ function initCvs(opts: { width: number; height: number }) {
 
   if (gl == null) throw Error('Cant create gl context');
 
-  const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShaderCustom);
+  const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShader);
   gl.useProgram(shaderProgram);
+
+  const redLUTTexture = createLUTTexture(gl, opts.redPolynomial);
+  const greenLUTTexture = createLUTTexture(gl, opts.greenPolynomial);
+  const blueLUTTexture = createLUTTexture(gl, opts.bluePolynomial);
+
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'frameTexture'), 0);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'redLUT'), 1);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'greenLUT'), 2);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'blueLUT'), 3);
 
   const posBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -169,7 +194,7 @@ function initCvs(opts: { width: number; height: number }) {
 
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
 
-  return { cvs, gl };
+  return { cvs, gl, redLUTTexture, greenLUTTexture, blueLUTTexture };
 }
 
 function getSourceWH(imgSource: TImgSource) {
@@ -178,63 +203,43 @@ function getSourceWH(imgSource: TImgSource) {
     : { width: imgSource.width, height: imgSource.height };
 }
 
-function createPolynomialTexture(gl: WebGL2RenderingContext, data: number[]) {
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 256, 1, 0, gl.RED, gl.FLOAT, new Float32Array(data));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  return texture;
-}
-
-export const createChromakeyCustom = (
-  colorCorrection: {
-    red: number[];
-    green: number[];
-    blue: number[];
-  }
+export const createColorCorrection = (
+  opts: IColorCorrectionOpts,
 ) => {
   let cvs: HTMLCanvasElement | OffscreenCanvas | null = null;
-  let gl: WebGL2RenderingContext | null = null;
-  let frameTexture: WebGLTexture | null = null;
-  let redPolynomialTexture: WebGLTexture | null = null;
-  let greenPolynomialTexture: WebGLTexture | null = null;
-  let bluePolynomialTexture: WebGLTexture | null = null;
+  let gl: WebGLRenderingContext | null = null;
+  let texture: WebGLTexture | null = null;
+  let redLUTTexture: WebGLTexture | null = null;
+  let greenLUTTexture: WebGLTexture | null = null;
+  let blueLUTTexture: WebGLTexture | null = null;
 
   return async (imgSource: TImgSource) => {
-    if (cvs == null || gl == null || frameTexture == null) {
-      ({ cvs, gl } = initCvs(getSourceWH(imgSource)));
-      frameTexture = initTexture(gl);
-
-      const shaderProgram = gl.getParameter(gl.CURRENT_PROGRAM);
-
-      redPolynomialTexture = createPolynomialTexture(gl, colorCorrection.red);
-      greenPolynomialTexture = createPolynomialTexture(gl, colorCorrection.green);
-      bluePolynomialTexture = createPolynomialTexture(gl, colorCorrection.blue);
-
-      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'frameTexture'), 0);
-      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'redPolynomial'), 1);
-      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'greenPolynomial'), 2);
-      gl.uniform1i(gl.getUniformLocation(shaderProgram, 'bluePolynomial'), 3);
+    if (cvs == null || gl == null || texture == null) {
+      ({ cvs, gl, redLUTTexture, greenLUTTexture, blueLUTTexture } = initCvs({
+        ...getSourceWH(imgSource),
+        ...opts,
+      }));
+      texture = initTexture(gl);
     }
 
     gl.activeTexture(gl.TEXTURE0);
-    updateTexture(gl, imgSource, frameTexture);
+    updateTexture(gl, imgSource, texture);
 
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, redPolynomialTexture);
+    gl.bindTexture(gl.TEXTURE_2D, redLUTTexture!);
 
     gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, greenPolynomialTexture);
+    gl.bindTexture(gl.TEXTURE_2D, greenLUTTexture!);
 
     gl.activeTexture(gl.TEXTURE3);
-    gl.bindTexture(gl.TEXTURE_2D, bluePolynomialTexture);
+    gl.bindTexture(gl.TEXTURE_2D, blueLUTTexture!);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    if (globalThis.VideoFrame != null && imgSource instanceof globalThis.VideoFrame) {
+    if (
+      globalThis.VideoFrame != null &&
+      imgSource instanceof globalThis.VideoFrame
+    ) {
       const rs = new VideoFrame(cvs, {
         alpha: 'keep',
         timestamp: imgSource.timestamp,
