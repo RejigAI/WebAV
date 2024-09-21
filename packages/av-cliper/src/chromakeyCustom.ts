@@ -11,20 +11,27 @@ const vertexShader = `#version 300 es
 `;
 
 const fragmentShader = `#version 300 es
-  precision mediump float;
+  precision highp float;
   out vec4 FragColor;
   in vec2 v_texCoord;
 
   uniform sampler2D frameTexture;
+  uniform sampler2D masterLUT;
   uniform sampler2D redLUT;
   uniform sampler2D greenLUT;
   uniform sampler2D blueLUT;
 
   void main() {
     vec4 color = texture(frameTexture, v_texCoord);
-    float r = texture(redLUT, vec2(color.r, 0.5)).r;
-    float g = texture(greenLUT, vec2(color.g, 0.5)).r;
-    float b = texture(blueLUT, vec2(color.b, 0.5)).r;
+
+    float m_r = texture(masterLUT, vec2(color.r, 0.5)).r;
+    float m_g = texture(masterLUT, vec2(color.g, 0.5)).r;
+    float m_b = texture(masterLUT, vec2(color.b, 0.5)).r;
+
+    float r = texture(redLUT, vec2(m_r, 0.5)).r;
+    float g = texture(greenLUT, vec2(m_g, 0.5)).r;
+    float b = texture(blueLUT, vec2(m_b, 0.5)).r;
+
     FragColor = vec4(r, g, b, color.a);
   }
 `;
@@ -123,6 +130,7 @@ function createLUTTexture(gl: WebGLRenderingContext, data: number[]) {
 }
 
 interface IColorCorrectionOpts {
+  masterPolynomial: number[];
   redPolynomial: number[];
   greenPolynomial: number[];
   bluePolynomial: number[];
@@ -151,14 +159,16 @@ function initCvs(
   const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShader);
   gl.useProgram(shaderProgram);
 
+  const masterLUTTexture = createLUTTexture(gl, opts.masterPolynomial);
   const redLUTTexture = createLUTTexture(gl, opts.redPolynomial);
   const greenLUTTexture = createLUTTexture(gl, opts.greenPolynomial);
   const blueLUTTexture = createLUTTexture(gl, opts.bluePolynomial);
 
   gl.uniform1i(gl.getUniformLocation(shaderProgram, 'frameTexture'), 0);
-  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'redLUT'), 1);
-  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'greenLUT'), 2);
-  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'blueLUT'), 3);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'masterLUT'), 1);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'redLUT'), 2);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'greenLUT'), 3);
+  gl.uniform1i(gl.getUniformLocation(shaderProgram, 'blueLUT'), 4);
 
   const posBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -194,7 +204,7 @@ function initCvs(
 
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
 
-  return { cvs, gl, redLUTTexture, greenLUTTexture, blueLUTTexture };
+  return { cvs, gl, masterLUTTexture, redLUTTexture, greenLUTTexture, blueLUTTexture };
 }
 
 function getSourceWH(imgSource: TImgSource) {
@@ -209,13 +219,14 @@ export const createColorCorrection = (
   let cvs: HTMLCanvasElement | OffscreenCanvas | null = null;
   let gl: WebGLRenderingContext | null = null;
   let texture: WebGLTexture | null = null;
+  let masterLUTTexture: WebGLTexture | null = null;
   let redLUTTexture: WebGLTexture | null = null;
   let greenLUTTexture: WebGLTexture | null = null;
   let blueLUTTexture: WebGLTexture | null = null;
 
   return async (imgSource: TImgSource) => {
     if (cvs == null || gl == null || texture == null) {
-      ({ cvs, gl, redLUTTexture, greenLUTTexture, blueLUTTexture } = initCvs({
+      ({ cvs, gl, masterLUTTexture, redLUTTexture, greenLUTTexture, blueLUTTexture } = initCvs({
         ...getSourceWH(imgSource),
         ...opts,
       }));
@@ -226,12 +237,15 @@ export const createColorCorrection = (
     updateTexture(gl, imgSource, texture);
 
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, redLUTTexture!);
+    gl.bindTexture(gl.TEXTURE_2D, masterLUTTexture!);
 
     gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, greenLUTTexture!);
+    gl.bindTexture(gl.TEXTURE_2D, redLUTTexture!);
 
     gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, greenLUTTexture!);
+
+    gl.activeTexture(gl.TEXTURE4);
     gl.bindTexture(gl.TEXTURE_2D, blueLUTTexture!);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
