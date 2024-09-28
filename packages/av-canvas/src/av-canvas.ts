@@ -322,6 +322,12 @@ export class AVCanvas {
       audioNode.connect(this.#captureAudioDest);
       this.#sprMapAudioNode.set(vs, audioNode);
     }
+
+    this.fitSpriteToCanvas(vs);
+
+    // Disable controls for the sprite
+    vs.rect.shouldShowControls = false;
+
     await this.#spriteManager.addSprite(vs);
   };
   /**
@@ -408,6 +414,30 @@ export class AVCanvas {
       await com.addSprite(os);
     }
     return com;
+  }
+
+  private fitSpriteToCanvas(vs: VisibleSprite): void {
+    const w = 1920;
+    const h = 1080;
+    const canvasAspectRatio = this.#cvsEl.width / this.#cvsEl.height;
+    const spriteAspectRatio = w / h;
+
+    let newWidth, newHeight;
+
+    if (spriteAspectRatio > canvasAspectRatio) {
+      // Fit to width
+      newWidth = this.#cvsEl.width;
+      newHeight = newWidth / spriteAspectRatio;
+    } else {
+      // Fit to height
+      newHeight = this.#cvsEl.height;
+      newWidth = newHeight * spriteAspectRatio;
+    }
+
+    vs.rect.w = newWidth;
+    vs.rect.h = newHeight;
+    vs.rect.x = (this.#cvsEl.width - newWidth) / 2;
+    vs.rect.y = (this.#cvsEl.height - newHeight) / 2;
   }
 }
 

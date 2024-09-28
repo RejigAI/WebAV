@@ -258,4 +258,14 @@ export class Rect implements IRectBaseProps {
 
     return true;
   }
+
+  showControls: boolean = true;
+
+  get shouldShowControls(): boolean {
+    return this.showControls;
+  }
+
+  set shouldShowControls(value: boolean) {
+    this.showControls = value;
+  }
 }
