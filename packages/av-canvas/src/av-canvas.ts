@@ -90,6 +90,7 @@ export class AVCanvas {
       bgColor: string;
     } & IResolution,
   ) {
+    console.log("Create new AVCanvas");
     this.#opts = opts;
     this.#cvsEl = createInitCvsEl(opts);
     const ctx = this.#cvsEl.getContext('2d', { alpha: false });
@@ -168,7 +169,7 @@ export class AVCanvas {
     this.#playState.step = 0;
     if (emitPaused) {
       this.#evtTool.emit('paused');
-      this.#audioCtx.suspend();
+      this.#audioCtx.suspend().catch(Log.error);
     }
     for (const asn of this.#playingAudioCache) {
       asn.stop();
@@ -267,7 +268,8 @@ export class AVCanvas {
     this.#playState.end = end;
     // AVCanvas 30FPS，将播放速率转换成步长
     this.#playState.step = (opts.playbackRate ?? 1) * (1000 / 30) * 1000;
-    this.#audioCtx.resume();
+
+    this.#audioCtx.resume().catch(Log.error);
     this.#playState.audioPlayAt = 0;
 
     this.#evtTool.emit('playing');
