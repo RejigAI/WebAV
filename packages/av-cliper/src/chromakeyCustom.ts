@@ -87,6 +87,11 @@ export const createColorCorrection = (opts: IColorCorrectionOpts) => {
   let gl: WebGLRenderingContext | null = null;
   let program: WebGLProgram | null = null;
   let imageTexture: WebGLTexture | null = null;
+  let masterLUTTexture: WebGLTexture | null = null;
+  let redLUTTexture: WebGLTexture | null = null;
+  let greenLUTTexture: WebGLTexture | null = null;
+  let blueLUTTexture: WebGLTexture | null = null;
+  let canvas: HTMLCanvasElement | null = null;
   let applyCorrection: ((source: TexImageSource) => void) | null = null;
 
   const initWebGL = (width: number, height: number) => {
@@ -122,10 +127,10 @@ export const createColorCorrection = (opts: IColorCorrectionOpts) => {
 
     // Set up textures
     imageTexture = createTexture(gl);
-    const masterLUTTexture = createLUTTexture(gl, opts.masterPolynomial);
-    const redLUTTexture = createLUTTexture(gl, opts.redPolynomial);
-    const greenLUTTexture = createLUTTexture(gl, opts.greenPolynomial);
-    const blueLUTTexture = createLUTTexture(gl, opts.bluePolynomial);
+    masterLUTTexture = createLUTTexture(gl, opts.masterPolynomial);
+    redLUTTexture = createLUTTexture(gl, opts.redPolynomial);
+    greenLUTTexture = createLUTTexture(gl, opts.greenPolynomial);
+    blueLUTTexture = createLUTTexture(gl, opts.bluePolynomial);
 
     gl.uniform1i(gl.getUniformLocation(program, 'u_image'), 0);
     gl.uniform1i(gl.getUniformLocation(program, 'u_masterLUT'), 1);
@@ -152,7 +157,34 @@ export const createColorCorrection = (opts: IColorCorrectionOpts) => {
     };
   };
 
-  return async (imgSource: TImgSource): Promise<ImageBitmap | VideoFrame> => {
+  const cleanup = () => {
+    if (gl) {
+      gl.deleteProgram(program);
+      gl.deleteTexture(imageTexture);
+      gl.deleteTexture(masterLUTTexture);
+      gl.deleteTexture(redLUTTexture);
+      gl.deleteTexture(greenLUTTexture);
+      gl.deleteTexture(blueLUTTexture);
+
+      // This will automatically delete the rendering context
+      if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+      }
+
+      gl = null;
+      program = null;
+      imageTexture = null;
+      masterLUTTexture = null;
+      redLUTTexture = null;
+      greenLUTTexture = null;
+      blueLUTTexture = null;
+      canvas = null;
+      applyCorrection = null;
+    }
+  };
+
+  const processImage = async (imgSource: TImgSource): Promise<ImageBitmap | VideoFrame> => {
     if (imgSource instanceof ImageBitmap) {
       if (!gl) initWebGL(imgSource.width, imgSource.height);
       applyCorrection!(imgSource);
@@ -164,5 +196,10 @@ export const createColorCorrection = (opts: IColorCorrectionOpts) => {
     } else {
       throw new Error('Unsupported image source type');
     }
+  };
+
+  return {
+    processImage,
+    cleanup
   };
 };
