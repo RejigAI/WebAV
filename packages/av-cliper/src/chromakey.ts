@@ -45,7 +45,7 @@ void main() {
   rgba.a = fullMask; // 设置透明度
   // 如果baseMask为负数，spillVal等于0；baseMask为整数，越小，饱和度越低
   float spillVal = pow(clamp(baseMask / spill, 0., 1.), 1.5);
-  float desat = clamp(rgba.r * 0.2126 + rgba.g * 0.7152 + rgba.b * 0.0722, 0., 1.); // 计算当前像素的灰度值
+  float desat = clamp(rgba.r * 0.2126 + rgba.g * 0.7152 + rgba.b * 0.0722, 0., 1.); // 计算当前像素的灰��值
   rgba.rgb = mix(vec3(desat, desat, desat), rgba.rgb, spillVal);
   FragColor = rgba;
 }
@@ -224,7 +224,7 @@ function initCvs(
   return { cvs, gl };
 }
 
-type TImgSource =
+export type TImgSource =
   | HTMLVideoElement
   | HTMLCanvasElement
   | HTMLImageElement

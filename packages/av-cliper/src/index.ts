@@ -20,6 +20,7 @@ export {
 } from './mp4-utils';
 export { createHLSLoader } from './data-loader/hls-loader';
 export { createChromakey } from './chromakey';
+export { createColorCorrection } from './chromakeyCustom';
 export { workerTimer } from './worker-timer';
 
 export * from './clips';

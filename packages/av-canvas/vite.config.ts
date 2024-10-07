@@ -10,6 +10,11 @@ export default defineConfig({
     },
     rollupOptions: {
       external: ['@webav/av-cliper'],
+      output: {
+        globals: {
+          '@webav/av-cliper': 'avCliper',
+        },
+      },
     },
   },
 });

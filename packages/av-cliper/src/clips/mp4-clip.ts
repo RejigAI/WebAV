@@ -10,6 +10,7 @@ import { extractFileConfig } from '../mp4-utils/mp4box-utils';
 import { SampleTransform } from '../mp4-utils/sample-transform';
 import { DEFAULT_AUDIO_CONF, IClip } from './iclip';
 import { file, tmpfile, write } from 'opfs-tools';
+import { EventTool } from '../event-tool';
 
 let CLIP_ID = 0;
 
@@ -71,6 +72,8 @@ export class MP4Clip implements IClip {
 
   #destroyed = false;
 
+  #refCount = 0;
+
   #meta = {
     // 微秒
     duration: 0,
@@ -104,6 +107,12 @@ export class MP4Clip implements IClip {
   };
 
   #opts: MP4ClipOpts = { audio: true };
+
+  #eventTool = new EventTool<{
+    destroy: () => void;
+  }>();
+
+  on = this.#eventTool.on;
 
   constructor(
     source: OPFSToolFile | ReadableStream<Uint8Array> | MPClipCloneArgs,
@@ -409,10 +418,32 @@ export class MP4Clip implements IClip {
     return clips;
   }
 
+  addRef() {
+    this.#refCount++;
+    this.#log.info(`Added reference. New refCount: ${this.#refCount}`);
+  }
+
+  release() {
+    this.#refCount--;
+    this.#log.info(`Released reference. New refCount: ${this.#refCount}`);
+    if (this.#refCount <= 0) {
+      this.#log.info('RefCount reached zero. Destroying clip.');
+      this.destroy();
+    }
+  }
+
   destroy(): void {
-    if (this.#destroyed) return;
+    if (this.#destroyed || this.#refCount > 0) {
+      this.#log.info(
+        `Skipping destruction: ${this.#destroyed ? 'already destroyed' : `refCount = ${this.#refCount}`}`,
+      );
+      return;
+    }
     this.#log.info('MP4Clip destroy');
     this.#destroyed = true;
+
+    this.#eventTool.emit('destroy');
+    this.#eventTool.destroy();
 
     this.#videoFrameFinder?.destroy();
     this.#audioFrameFinder?.destroy();

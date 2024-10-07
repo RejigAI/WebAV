@@ -25,7 +25,7 @@ export function renderCtrls(
 
   const { rectEl, ctrlsEl } = createRectAndCtrlEl(container);
   const offSprChange = sprMng.on(ESpriteManagerEvt.ActiveSpriteChange, (s) => {
-    if (s == null) {
+    if (s == null || !s.rect.shouldShowControls) {
       rectEl.style.display = 'none';
       return;
     }
@@ -101,6 +101,11 @@ function syncCtrlElPos(
   ctrlsEl: Record<TCtrlKey, HTMLElement>,
   cvsRatio: ICvsRatio,
 ): void {
+  if (!s.rect.shouldShowControls) {
+    rectEl.style.display = 'none';
+    return;
+  }
+
   const { x, y, w, h, angle, ctrls } = s.rect;
   Object.assign(rectEl.style, {
     left: `${x * cvsRatio.w}px`,
