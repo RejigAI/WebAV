@@ -66,6 +66,9 @@ export class VisibleSprite extends BaseSprite {
         }
         this.#lastAudio = audio ?? [];
       })
+      .catch((err) => {
+        console.error(`Error updating sprite:`, err);
+      })
       .finally(() => {
         this.#ticking = false;
       });

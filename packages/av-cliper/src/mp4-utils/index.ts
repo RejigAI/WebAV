@@ -652,12 +652,12 @@ function chunk2MP4SampleOpts(
 }
 
 /**
- * 快速拼接多个mp4 文件流，要求所有 mp4 的属性一致，
- * 属性包括（不限于）：音视频编码格式、分辨率、采样率
+ * Quickly concatenate multiple MP4 file streams, requiring all MP4s to have consistent properties.
+ * Properties include (but are not limited to): audio/video encoding format, resolution, sample rate.
  *
- * @param streams 一个包含 Uint8Array 的可读流数组。
- * @returns 返回一个 Promise，该 Promise 在解析时返回一个包含合并后的 MP4 数据的可读流。
- * @throws 如果无法从流生成文件，将抛出错误。
+ * @param streams An array of readable streams containing Uint8Array.
+ * @returns Returns a Promise that resolves to a readable stream containing the merged MP4 data.
+ * @throws Will throw an error if unable to generate a file from the streams.
  *
  * @example
  * const streams = [stream1, stream2, stream3];
